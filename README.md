@@ -8,7 +8,7 @@ dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /nores
 ```
 
 ## Display Scaling - https://github.com/microsoft/wslg/issues/23
-C:\ProgramData\Microsoft\WSL\.wslconfig
+C:\ProgramData\Microsoft\WSL\\.wslconfig
 ```powershell
 [system-distro-env]
 WESTON_RDP_DISABLE_HI_DPI_SCALING=false
@@ -238,7 +238,7 @@ cd .. && rm -rf yay-bin
 
 ## Zsh
 ```shell
-sudo pacman -S cmake fzf powerline vim-powerline python-pygments zsh-completions zsh-history-substring-search zsh-syntax-highlighting zsh-theme-powerlevel10k
+sudo pacman -S cmake fzf powerline vim-powerline python-pygments zsh-completions zsh-history-substring-search zsh-syntax-highlighting zsh-theme-powerlevel10k-bin-git
 yay -S autojump
 sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 mv .zshrc .zshrc.omz
@@ -251,7 +251,7 @@ cp -r $(python -c "import site; print(site.getsitepackages()[0])")/powerline/con
 
 ## Theming
 ```shell
-yay -S breeze windows8-cursor
+yay -S breeze unzip windows8-cursor
 sudo tee /etc/profile.d/gui_vars.sh 1> /dev/null << EOF
 export GTK_THEME=Adwaita:dark
 export QT_QPA_PLATFORMTHEME=qt6ct
