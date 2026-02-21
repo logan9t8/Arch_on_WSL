@@ -21,20 +21,35 @@ WESTON_RDP_DEBUG_DESKTOP_SCALING_FACTOR=125
 # amd64 - https://wiki.archlinux.org/title/Install_Arch_Linux_on_WSL
 wsl --install archlinux
 
-# arm64 - https://archlinuxarm.org/platforms/armv8/generic
+# arm64 - Option #1 https://archlinuxarm.org/platforms/armv8/generic
 mkdir -p C:\Arch && cd C:\Arch
-Invoke-WebRequest -URI ArchLinuxARM-aarch64-latest.tar.gz -OutFile Arch.tar.gz
-wsl --import Arch C:\Arch Arch.tar.gz
-rm .\Arch.tar.gz
-wsl -d Arch
+Invoke-WebRequest -URI http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz -OutFile Arch.tar.gz
+wsl --import archlinux C:\archlinux archlinuxarm.tar.gz
+rm .\archlinuxarm.tar.gz
+wsl -d archlinux
+
+# arm64 - Option #2 Self-build from existing alarm system
+git clone https://gitlab.archlinux.org/archlinux/archlinux-wsl.git
+# Prepend /rootfs/etc/pacman.d/mirrorlist with the below line
+Server = http://mirror.archlinuxarm.org/$arch/$repo
+# Append in /scripts/build-image.sh after line 'fakechroot -- fakeroot -- chroot "$BUILDDIR" pacman-key --populate'
+fakechroot -- fakeroot -- chroot "$BUILDDIR" pacman-key --populate archlinuxarm
+# Then from windows
+wsl --install --from-file archlinux-<date>.wsl
 ```
 
 ## Update Keyring
 ```shell
 pacman-key --init
 pacman-key --populate
-pacman-key --populate archlinuxarm #arm64 only
+pacman-key --populate archlinuxarm #arm64 Option #1 only
 pacman -Sy archlinux-keyring
+```
+
+## Configure pacman options
+```shell
+sed -ri '/HookDir|Color/s/^#//g' /etc/pacman.conf
+sed -i 's/^NoProgressBar/#NoProgressBar/g' /etc/pacman.conf
 ```
 
 ## Update system
@@ -42,9 +57,35 @@ pacman -Sy archlinux-keyring
 pacman -Syu
 ```
 
-## Machine ID
+## Terminal packages
+```shell
+pacman -S sudo tmux vim zsh
+ln -s /usr/bin/vim /usr/bin/vi
+```
+
+## Initialize systemd
 ```shell
 systemd-machine-id-setup
+```
+
+## WSL Config
+```shell
+tee -a /etc/wsl.conf > /dev/null <<EOF
+
+[network]
+generateResolvConf=false
+
+[user]
+default=dinesh
+EOF
+```
+
+## Custom DNS
+```shell
+tee /etc/resolv.conf > /dev/null << EOF
+nameserver       1.1.1.1
+nameserver       1.0.0.1
+EOF
 ```
 
 ## Locale
@@ -58,20 +99,17 @@ EOF
 
 ## D-Bus
 ```shell
-cat > /etc/profile.d/dbus.sh 1> /dev/null << EOF
-export \$(dbus-launch)
-EOF
-chmod +x /etc/profile.d/dbus.sh
-dbus-uuidgen --ensure
+tee -a /etc/pam.d/login > /dev/null << EOF
+session optional pam_systemd.so
 ```
 
-## Reflector
+## Reflector (If required)
 ```shell
 pacman -S reflector
 reflector --save /etc/pacman.d/mirrorlist --protocol https --latest 20 --sort rate --download-timeout 30
 ```
 
-## Remove unneeded packages, services and user (arm64)
+## Remove unneeded packages, services and user (arm64 Option #1)
 ```shell
 pacman -Rns dhcpcd linux-aarch64 linux-firmware nano netctl vi
 
@@ -88,42 +126,11 @@ userdel alarm
 rm -rf /home/alarm
 ```
 
-## Install needed packages
-```shell
-pacman -S sudo tmux vim zsh
-```
-
-## Annoyances
-```shell
-ln -s /usr/bin/vim /usr/bin/vi
-```
-
 ## Create user
 ```shell
-useradd -s /usr/bin/zsh -G wheel <username>
-echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/wheel
+useradd -m -G wheel -s /usr/bin/zsh <username>
+EDITOR='sed -i "/^# %wheel ALL=(ALL:ALL) ALL/s/^# //"' visudo
 passwd <username>
-mkdir $HOME/.xdg-runtime
-export XDG_RUNTIME_DIR=$HOME/.xdg-runtime # Add to .zshrc later
-```
-
-## Systemd, custom DNS and default user
-```shell
-cat > /etc/wsl.conf 1> /dev/null << EOF
-[boot]
-systemd=true
-
-[network]
-generateResolvConf=false
-
-[user]
-default=<username>
-EOF
-
-cat > /etc/resolv.conf 1> /dev/null << EOF
-nameserver       1.1.1.1
-nameserver       1.0.0.1
-EOF
 ```
 
 ## Set root password
@@ -134,7 +141,8 @@ passwd root
 # Switch to new user
 ```powershell
 exit
-wsl -d Arch
+wsl --terminate archlinux
+wsl -d archlinux
 ```
 
 ## Lock root account
@@ -142,22 +150,11 @@ wsl -d Arch
 sudo passwd -l root
 ```
 
-## Install make utils
+## Install make utils (For building AUR packages)
 ```shell
 sudo pacman -S --needed base-devel
 sudoedit /etc/makepkg.conf
 # Replace MAKEFLAGS=-j2 with -j$(nproc)
-```
-
-## LSB Packages (If required)
-```shell
-sudo pacman -S --needed bc nss perl time
-sudo pacman -S --needed gtk3 gtk4 libxslt qt5-base qt6-base
-```
-
-## Enable required pacman options
-```shell
-sudo sed -ri '/HookDir|Color/s/^#//g' /etc/pacman.conf
 ```
 
 ## Pacman related packages
@@ -187,6 +184,11 @@ sudo systemctl enable --now pkgfile-update.timer
 sudo pkgfile -u
 ```
 
+## Man
+```shell
+sudo pacman -S man-db man-pages
+```
+
 ## File Handling
 ```shell
 sudo pacman -S xdg-utils perl-file-mimeinfo
@@ -194,21 +196,12 @@ sudo pacman -S xdg-utils perl-file-mimeinfo
 
 ## Home Directory
 ```shell
-sudo mkdir /home/<username>
-sudo chown <username>:<username> /home/<username>
 sudo pacman -S xdg-user-dirs
 xdg-user-dirs-update
 sudo pacman -R xdg-user-dirs
 rmdir ~/*
 # This way ~/.config/user-dirs.dirs gets created
 
-# Option 1 - Let Windows & WSL home be the same
-# NOTE: OneDrive dirs don't map! C:\Users\<Username> contains dummy dirs!
-rmdir /home/<username>
-ln -s /mnt/c/Users/<Username> /home/<username>
-mkdir ~/{Public,Documents,Templates}
-
-# Option 2 - Let WSL home be separate
 ln -s /mnt/c/Users/<username>/Downloads ~
 ln -s /mnt/c/Users/<username>/OneDrive/Music ~
 ln -s /mnt/c/Users/<username>/OneDrive/Videos ~
@@ -226,35 +219,6 @@ chmod +x ~/.local/bin/xdg-open
 #Make sure ~/.local/bin/ is PREPENDED to path to override /usr/sbin/xdg-open. i,e. PATH="$HOME/.local/bin:$PATH"
 ```
 
-## Explorer
-```shell
-cat > $HOME/.local/bin/explorer 1> /dev/null << EOF
-##!/bin/bash
-[[ "\$1" ]] || set -- "\$HOME"
-explorer.exe "\$(wslpath -w "\$1")"
-EOF
-chmod +x $HOME/.local/bin/explorer
-```
-
-## Firefox
-```shell
-cat > $HOME/.local/bin/firefox 1> /dev/null << EOF
-##!/bin/bash
-[[ "\$1" ]] || set -- "about:newtab"
-"/mnt/c/Program Files/Mozilla Firefox/firefox.exe" "\$1"
-EOF
-chmod +x $HOME/.local/bin/firefox
-```
-
-## VLC
-```shell
-cat > $HOME/.local/bin/vlc 1> /dev/null << EOF
-##!/bin/bash
-"/mnt/c/Program Files/VideoLAN/VLC/vlc.exe" "\$@"
-EOF
-chmod +x $HOME/.local/bin/vlc
-```
-
 ## Install yay
 ```shell
 sudo pacman -S git
@@ -263,61 +227,53 @@ cd yay-bin && makepkg -si
 cd .. && rm -rf yay-bin
 ```
 
-## Zsh
+## Shell
 ```shell
-sudo pacman -S cmake fzf powerline vim-powerline python-pygments zsh-autosuggestions zsh-completions zsh-history-substring-search zsh-syntax-highlighting
+sudo pacman -S fd fzf powerline vim-powerline python-pygments ripgrep \
+  zsh-autosuggestions zsh-completions zsh-history-substring-search zsh-syntax-highlighting
 yay -S autojump oh-my-posh-bin
 sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 mv .zshrc .zshrc.omz
-# Ensure dotfiles .zshrc, .vimrc, .tmux.conf
-
-# If powerline needs to be customized
-mkdir -p $HOME/.config/powerline
-cp -r $(python -c "import site; print(site.getsitepackages()[0])")/powerline/config_files/* $HOME/.config/powerline
-```
-
-## Theming (If GUI is required)
-```shell
-yay -S breeze unzip windows8-cursor
-sudo tee /etc/profile.d/gui_vars.sh 1> /dev/null << EOF
-export GTK_THEME=Adwaita:dark
-export QT_QPA_PLATFORMTHEME=qt6ct
-export MOZ_GTK_TITLEBAR_DECORATION=client
-EOF
-sudo chmod +x /etc/profile.d/gui_vars.sh
-sudo tee /usr/share/icons/default/index.theme 1> /dev/null << EOF
-[Icon Theme]
-Inherits=Windows8-cursor
-EOF
-yay -S gnome-tweaks qt6ct-kde
-```
-
-## Fuse for AppImages (If required)
-```shell
-sudo pacman -S fuse
-```
-
-## Install Disk Utilities (If required)
-```shell
-sudo pacman -S nautilus baobab gnome-disk-utility
-```
+# Ensure dotfiles .zshrc, .vimrc, .tmux.conf, .tmux_bindings.sh, .ripgreprc
+chmod +x .tmux_bindings.sh
+mkdir -p $HOME/.local/share/oh-my-posh/themes/
+cp -p /usr/share/oh-my-posh/themes/powerlevel10k_rainbow.omp.json $HOME/.local/share/oh-my-posh/themes/powerlevel10k_rainbow.omp.json
+sed -i 's/{{\.Icon}}/\\uF303/g' $HOME/.local/share/oh-my-posh/themes/powerlevel10k_rainbow.omp.json
 
 ## Journal size
 ```shell
-sudoedit /etc/systemd/journald.conf
-    SystemMaxUse=100M
+sudo sed -i 's/^#SystemMaxUse=/SystemMaxUse=50M/g' /etc/systemd/journald.conf
 sudo systemctl restart systemd-journald
 journalctl --vacuum-size=100M
 ```
 
-## Remove packages & cache
+## Remove package cache and unneeded locales
 ```shell
 sudo paccache -ruk0
 yay -Qtdq | yay -Rns -
 yay -Scc
-sudo pacman -S localepurge
+sudo pacman -S localepurge-hook
 sudo sed -i 's/^NEEDSCONFIGFIRST/#NEEDSCONFIGFIRST/g' /etc/locale.nopurge
+sudo sed -i 's/^#DONTBOTHERNEWLOCALE/DONTBOTHERNEWLOCALE/g' /etc/locale.nopurge
 sudo localepurge
+```
+
+# GUI (If needed)
+```shell
+sudo pacman -S gtk3 gtk4 qt5-base qt6-base
+yay -S breeze breeze-gtk windows8-cursor gnome-tweaks qt6ct
+gsettings set org.gnome.desktop.interface cursor-size 12
+sudo tee /usr/share/icons/default/index.theme 1> /dev/null << EOF
+[Icon Theme]
+Inherits=Windows8-cursor
+EOF
+cat > $HOME/.zprofile 1> /dev/null << EOF
+export GTK_THEME=Breeze:dark
+export QT_QPA_PLATFORMTHEME=qt6ct
+export MOZ_GTK_TITLEBAR_DECORATION=client
+export XCURSOR_THEME=Windows8-cursor
+export XCURSOR_SIZE=12
+EOF
 ```
 
 ## If x11 is broken
@@ -328,6 +284,11 @@ ln -s /mnt/wslg/.X11-unix /tmp/.X11-unix
 ## Trim ext4.vhdx
 ```powershell
 exit
+# (Option #1 - Automatic)
+wsl --manage archlinux --set-sparse true
+# (Option #2 - Manual - Optimize-VHD (If Hyper-V is installed))
+Optimize-VHD -Path C:\Users\Dinesh\AppData\Local\wsl\<hash>\ext4.vhdx -Mode Full
+# (Option #3 - Manual - DiskPart)
 wsl --shutdown
 diskpart
 select vdisk file=C:\Arch\ext4.vhdx
@@ -341,4 +302,10 @@ exit
 ```shell
 sudo pacman -S ncdu
 sudo ncdu -x /
+```
+
+# System info
+```shell
+yay -S fastfetch
+fastfetch
 ```
